@@ -8,7 +8,7 @@ on:
 
 jobs:
   run-bot:
-    runs-runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Kodu Çek
         uses: actions/checkout@v3
