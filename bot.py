@@ -27,14 +27,16 @@ def main():
     is_first_run = len(posted_ads) == 0
     print(f"[INFO] Hafızadaki ilan sayısı: {len(posted_ads)}")
     
+    # JS render aktif edildi
     payload = {
         'api_key': SCRAPER_API_KEY,
         'url': TARGET_URL,
-        'country_code': 'de'
+        'country_code': 'de',
+        'render': 'true'
     }
     
     try:
-        response = requests.get('http://api.scraperapi.com', params=payload, timeout=60)
+        response = requests.get('http://api.scraperapi.com', params=payload, timeout=90)
         
         if response.status_code != 200:
             print(f"[HATA] ScraperAPI Istek Başarısız! HTTP: {response.status_code}")
@@ -42,53 +44,54 @@ def main():
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Sadece gerçek ilan kartlarını çek
+        # 1. Standart ilan kartları
         articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
+        
+        # 2. Alternatif liste kapsayıcıları
+        if not articles:
+            articles = soup.select('ul#srchrslt-adresults > li')
 
         if not articles:
-            print("[UYARI] Sayfada ilan kartı (aditem) bulunamadı.")
+            print("[UYARI] Sayfada ilan kartı bulunamadı.")
             return
 
-        print(f"[INFO] Incelenecek gerçek ilan sayısı: {len(articles)}")
+        print(f"[INFO] Incelenecek toplam ilan sayısı: {len(articles)}")
 
         new_ads_found = 0
 
         for article in articles:
+            # İlan ID'si çekme
             ad_id = article.get('data-adid')
             
-            if not ad_id:
-                title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
-                if title_elem and title_elem.get('href'):
-                    ad_id = title_elem.get('href').split('/')[-1]
-
-            if not ad_id:
-                continue
-
-            # Eğer ilan zaten kayıtlıysa geç
-            if ad_id in posted_ads:
-                continue
-
-            # Detayları ayıkla
-            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
-            price_elem = article.find('p', class_=lambda x: x and 'price' in x)
-            date_elem = article.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
-
+            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2') or article.find('a')
             if not title_elem:
                 continue
 
-            title = title_elem.text.strip()
+            href = title_elem.get('href') or ''
+            if not href or '/s-anzeige/' not in href:
+                continue
+
+            if not ad_id:
+                ad_id = href.split('/')[-1]
+
+            # Zaten hafızadaysa atla
+            if ad_id in posted_ads:
+                continue
+
+            price_elem = article.find('p', class_=lambda x: x and 'price' in x)
+            date_elem = article.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
+
+            title = title_elem.text.strip() or "Arızalı Ekran Kartı İlanı"
             price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
-            raw_date = " ".join(date_elem.text.split()) if date_elem else "Saat Belirtilmedi"
-            href = title_elem.get('href') or title_elem.find_parent('a')['href']
+            raw_date = " ".join(date_elem.text.split()) if date_elem else "Bugün / Yeni"
             link = "https://www.kleinanzeigen.de" + href if href.startswith('/') else href
 
-            # İlk çalıştırmaysa, mevcut 50 ilanı hafızaya al ama Discord'a ATMA (Spam engeli)
+            # İlk çalıştırmada mevcut eski ilanları hafızaya alıp Discord'u spamlamıyoruz
             if is_first_run:
                 save_posted_ad(ad_id)
                 posted_ads.add(ad_id)
                 continue
 
-            # Gerçek yeni ilan bulundu!
             print(f"[YENİ İLAN DETAYI] {title} | {price} | {raw_date}")
 
             payload_discord = {
@@ -101,12 +104,12 @@ def main():
                 save_posted_ad(ad_id)
                 posted_ads.add(ad_id)
                 new_ads_found += 1
-                time.sleep(1.5)  # Discord HTTP 429 spam koruması
+                time.sleep(1.5)
             else:
                 print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
 
         if is_first_run:
-            print("[INFO] İlk çalıştırma tamamlandı. Mevcut ilanlar hafızaya alındı, Discord'a atılmadı. Artık sadece SIFIR YENİ ilanlar atılacak!")
+            print("[INFO] İlk çalıştırma tamamlandı. Sayfadaki mevcut ilanlar hafızaya kaydedildi. Artık sadece SIFIR YENİ ilanlar Discord'a atılacak!")
         elif new_ads_found == 0:
             print("[INFO] Yeni ilan yok.")
 
