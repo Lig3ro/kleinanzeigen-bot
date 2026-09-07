@@ -7,33 +7,36 @@ SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 TARGET_URL = "https://www.kleinanzeigen.de/s-grafikkarte-defekt/k0"
 
 def main():
-    if not DISCORD_WEBHOOK_URL:
-        print("[HATA] DISCORD_WEBHOOK Secret bulunamadi!")
-        return
-        
-    if not SCRAPER_API_KEY:
-        print("[HATA] SCRAPER_API_KEY Secret bulunamadi!")
+    if not DISCORD_WEBHOOK_URL or not SCRAPER_API_KEY:
+        print("[HATA] Secret'lar eksik!")
         return
 
     print("[INFO] ScraperAPI üzerinden Kleinanzeigen taranıyor...")
     
-    # ScraperAPI endpoint URL (render=true ile JS dinamik içerikleri de yükler)
+    # render=true ekleyerek JS bileşenlerinin tam yüklenmesini sağlıyoruz
     payload = {
         'api_key': SCRAPER_API_KEY,
         'url': TARGET_URL,
-        'country_code': 'de'
+        'country_code': 'de',
+        'render': 'true'
     }
     
     try:
-        response = requests.get('http://api.scraperapi.com', params=payload, timeout=60)
+        response = requests.get('http://api.scraperapi.com', params=payload, timeout=90)
         
         if response.status_code != 200:
             print(f"[HATA] ScraperAPI Istek Başarısız! HTTP Kodu: {response.status_code}")
             return
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
         
+        # Farklı ilan kapsayıcı etiketlerini tara
+        articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
+        if not articles:
+            articles = soup.select('ul#srchrslt-adresults li')
+        if not articles:
+            articles = soup.select('.ad-listitem')
+
         print(f"[INFO] Toplam {len(articles)} adet ilan tarandı.")
 
         if len(articles) == 0:
@@ -41,7 +44,7 @@ def main():
             return
 
         for article in articles[:5]:
-            title_elem = article.find('a', class_=lambda x: x and 'ellipsis' in x) or article.find('h2')
+            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
             price_elem = article.find('p', class_=lambda x: x and 'price' in x)
             
             if title_elem and price_elem:
