@@ -27,43 +27,52 @@ def main():
             return
 
         soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Farklı ilan kapsayıcılarını tara
         articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
+        if not articles:
+            articles = soup.find_all('a', href=lambda h: h and '/s-anzeige/' in h)
+
+        print(f"[INFO] Bulunan ilan sayısı: {len(articles)}")
 
         if len(articles) == 0:
-            print("[UYARI] İlan bulunamadı.")
+            print("[UYARI] Sayfada ilan etiketleri çekilemedi.")
             return
 
-        for article in articles[:5]:
-            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
-            price_elem = article.find('p', class_=lambda x: x and 'price' in x)
-            
-            # İlanın sitedeki gerçek yüklenme saati/tarihi
-            date_elem = article.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
-            
-            if date_elem:
-                # Satır sonlarını ve fazla boşlukları temizle
-                raw_date = " ".join(date_elem.text.split())
+        for item in articles[:5]:
+            # Eğer doğrudan 'a' etiketi yakalandıysa
+            if item.name == 'a':
+                href = item.get('href')
+                title = item.text.strip() or "Arızalı Ekran Kartı İlanı"
+                price = "Detay için linke tıklayın"
+                raw_date = "Bugün / Yeni"
             else:
-                raw_date = "Saat bilgisi alınamadı"
-
-            if title_elem and price_elem:
-                title = title_elem.text.strip()
-                price = price_elem.text.strip()
-                href = title_elem.get('href') or title_elem.find_parent('a')['href']
-                link = "https://www.kleinanzeigen.de" + href
-
-                print(f"[INFO] İlan: {title} | Fiyat: {price} | Yüklenme Saati: {raw_date}")
-
-                payload_discord = {
-                    "content": f"🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Sitedeki Yüklenme Saati:** 🕒 `{raw_date}`\n**Link:** {link}"
-                }
-                res = requests.post(DISCORD_WEBHOOK_URL, json=payload_discord)
-                if res.status_code in [200, 204]:
-                    print("[BAŞARILI] Discord bildirimi gönderildi!")
-                else:
-                    print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
+                title_elem = item.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or item.find('h2')
+                price_elem = item.find('p', class_=lambda x: x and 'price' in x)
+                date_elem = item.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
                 
-                break
+                if not title_elem:
+                    continue
+
+                title = title_elem.text.strip()
+                price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
+                raw_date = " ".join(date_elem.text.split()) if date_elem else "Saat Bilgisi Yok"
+                href = title_elem.get('href') or title_elem.find_parent('a')['href']
+
+            link = "https://www.kleinanzeigen.de" + href if href.startswith('/') else href
+
+            print(f"[INFO] İlan bulundu: {title} | {price} | {raw_date}")
+
+            payload_discord = {
+                "content": f"🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Sitedeki Yüklenme Saati:** 🕒 `{raw_date}`\n**Link:** {link}"
+            }
+            res = requests.post(DISCORD_WEBHOOK_URL, json=payload_discord)
+            if res.status_code in [200, 204]:
+                print("[BAŞARILI] Discord bildirimi gönderildi!")
+            else:
+                print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
+            
+            break
 
     except Exception as e:
         print(f"[HATA] Bir sorun oluştu: {str(e)}")
