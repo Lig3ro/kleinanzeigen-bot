@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from bs4 import BeautifulSoup
 
@@ -23,9 +24,9 @@ def main():
         return
 
     posted_ads = load_posted_ads()
+    is_first_run = len(posted_ads) == 0
     print(f"[INFO] Hafızadaki ilan sayısı: {len(posted_ads)}")
     
-    # Yalın ScraperAPI parametreleri
     payload = {
         'api_key': SCRAPER_API_KEY,
         'url': TARGET_URL,
@@ -41,50 +42,54 @@ def main():
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 1. Ana kapsayıcılar (article.aditem)
+        # Sadece gerçek ilan kartlarını çek
         articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
-        
-        # 2. Alternatif kapsayıcılar (li veya a etiketleri)
-        if not articles:
-            articles = soup.select('ul#srchrslt-adresults li') or soup.find_all('a', href=lambda h: h and '/s-anzeige/' in h)
-
-        print(f"[INFO] Incelenecek toplam ilan sayısı: {len(articles)}")
 
         if not articles:
-            print("[UYARI] Sayfada ilan kapsayıcısı bulunamadı.")
+            print("[UYARI] Sayfada ilan kartı (aditem) bulunamadı.")
             return
 
-        for item in articles:
-            # Doğrudan 'a' linki yakalandıysa
-            if item.name == 'a':
-                href = item.get('href') or ''
-                ad_id = href.split('/')[-1] if href else None
-                title = item.text.strip() or "Arızalı Ekran Kartı İlanı"
-                price = "Detay için tıklayın"
-                raw_date = "Bugün / Yeni"
-            else:
-                ad_id = item.get('data-adid')
-                title_elem = item.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or item.find('h2') or item.find('a')
-                if not title_elem:
-                    continue
+        print(f"[INFO] Incelenecek gerçek ilan sayısı: {len(articles)}")
 
-                href = title_elem.get('href') or ''
-                if not ad_id and href:
-                    ad_id = href.split('/')[-1]
+        new_ads_found = 0
 
-                price_elem = item.find('p', class_=lambda x: x and 'price' in x)
-                date_elem = item.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
+        for article in articles:
+            ad_id = article.get('data-adid')
+            
+            if not ad_id:
+                title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
+                if title_elem and title_elem.get('href'):
+                    ad_id = title_elem.get('href').split('/')[-1]
 
-                title = title_elem.text.strip() or "Arızalı Ekran Kartı İlanı"
-                price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
-                raw_date = " ".join(date_elem.text.split()) if date_elem else "Bugün / Yeni"
-
-            if not ad_id or ad_id in posted_ads:
+            if not ad_id:
                 continue
 
+            # Eğer ilan zaten kayıtlıysa geç
+            if ad_id in posted_ads:
+                continue
+
+            # Detayları ayıkla
+            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
+            price_elem = article.find('p', class_=lambda x: x and 'price' in x)
+            date_elem = article.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
+
+            if not title_elem:
+                continue
+
+            title = title_elem.text.strip()
+            price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
+            raw_date = " ".join(date_elem.text.split()) if date_elem else "Saat Belirtilmedi"
+            href = title_elem.get('href') or title_elem.find_parent('a')['href']
             link = "https://www.kleinanzeigen.de" + href if href.startswith('/') else href
 
-            print(f"[YENİ İLAN] {title} | {price} | {raw_date}")
+            # İlk çalıştırmaysa, mevcut 50 ilanı hafızaya al ama Discord'a ATMA (Spam engeli)
+            if is_first_run:
+                save_posted_ad(ad_id)
+                posted_ads.add(ad_id)
+                continue
+
+            # Gerçek yeni ilan bulundu!
+            print(f"[YENİ İLAN DETAYI] {title} | {price} | {raw_date}")
 
             payload_discord = {
                 "content": f"🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Sitedeki Yüklenme Saati:** 🕒 `{raw_date}`\n**Link:** {link}"
@@ -92,11 +97,18 @@ def main():
             
             res = requests.post(DISCORD_WEBHOOK_URL, json=payload_discord)
             if res.status_code in [200, 204]:
-                print(f"[BAŞARILI] Discord'a atıldı: {ad_id}")
+                print(f"[BAŞARILI] Discord'a gönderildi: {title}")
                 save_posted_ad(ad_id)
                 posted_ads.add(ad_id)
+                new_ads_found += 1
+                time.sleep(1.5)  # Discord HTTP 429 spam koruması
             else:
                 print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
+
+        if is_first_run:
+            print("[INFO] İlk çalıştırma tamamlandı. Mevcut ilanlar hafızaya alındı, Discord'a atılmadı. Artık sadece SIFIR YENİ ilanlar atılacak!")
+        elif new_ads_found == 0:
+            print("[INFO] Yeni ilan yok.")
 
     except Exception as e:
         print(f"[HATA] Bir sorun oluştu: {str(e)}")
