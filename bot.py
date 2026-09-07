@@ -1,5 +1,4 @@
 import os
-import re
 import requests
 from bs4 import BeautifulSoup
 
@@ -40,36 +39,41 @@ def main():
             return
 
         soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Öncelikli olarak 'article.aditem' kapsayıcılarını ara
         articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
+        
+        # Eğer aditem bulunamazsa alternatif ilan kapsayıcılarını tara
+        if not articles:
+            articles = soup.select('ul#srchrslt-adresults > li.ad-listitem')
+
+        print(f"[INFO] Incelenecek toplam ilan sayısı: {len(articles)}")
 
         if not articles:
-            print("[UYARI] Sayfada aditem sınıfı bulunamadı.")
+            print("[UYARI] Sayfada ilan kapsayıcısı bulunamadı.")
             return
 
-        print(f"[INFO] Toplam {len(articles)} ilan inceleniyor...")
-
         for article in articles:
-            # İlan ID'si çekme
-            ad_id = article.get('data-adid')
-            if not ad_id:
-                continue
-
-            # Daha önce atıldıysa atla
-            if ad_id in posted_ads:
-                continue
-
-            # Detayları çek
-            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
-            price_elem = article.find('p', class_=lambda x: x and 'price' in x)
-            date_elem = article.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
-
+            ad_id = article.get('data-adid') or article.find('article').get('data-adid') if article.find('article') else None
+            
+            # ID bulunamadıysa URL üzerinden benzersiz kimlik türet
+            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2') or article.find('a')
             if not title_elem:
                 continue
 
-            title = title_elem.text.strip()
+            href = title_elem.get('href') or ''
+            if not ad_id and href:
+                ad_id = href.split('/')[-1]
+
+            if not ad_id or ad_id in posted_ads:
+                continue
+
+            price_elem = article.find('p', class_=lambda x: x and 'price' in x)
+            date_elem = article.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
+
+            title = title_elem.text.strip() or "Arızalı Ekran Kartı İlanı"
             price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
-            raw_date = " ".join(date_elem.text.split()) if date_elem else "Saat Belirtilmedi"
-            href = title_elem.get('href') or title_elem.find_parent('a')['href']
+            raw_date = " ".join(date_elem.text.split()) if date_elem else "Bugün / Yeni"
             link = "https://www.kleinanzeigen.de" + href if href.startswith('/') else href
 
             print(f"[YENİ İLAN] {title} | {price} | {raw_date}")
@@ -82,6 +86,7 @@ def main():
             if res.status_code in [200, 204]:
                 print(f"[BAŞARILI] Discord'a atıldı: {ad_id}")
                 save_posted_ad(ad_id)
+                posted_ads.add(ad_id)
             else:
                 print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
 
