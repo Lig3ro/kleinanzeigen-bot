@@ -37,4 +37,9 @@ def check_listings():
             break # Sadece en son ilanı kontrol edip bildirmesi yeterli
 
 if __name__ == "__main__":
-    check_listings()
+    while True:
+        try:
+            main()  # İlan tarama fonksiyonun
+        except Exception as e:
+            print(f"Hata oluştu: {e}")
+        time.sleep(600)  # 10 dakika bekle ve tekrar çalış
