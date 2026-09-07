@@ -25,20 +25,15 @@ def main():
     posted_ads = load_posted_ads()
     print(f"[INFO] Hafızadaki ilan sayısı: {len(posted_ads)}")
     
+    # Yalın ScraperAPI parametreleri
     payload = {
         'api_key': SCRAPER_API_KEY,
         'url': TARGET_URL,
-        'country_code': 'de',
-        'keep_headers': 'true'
-    }
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
+        'country_code': 'de'
     }
     
     try:
-        response = requests.get('http://api.scraperapi.com', params=payload, headers=headers, timeout=60)
+        response = requests.get('http://api.scraperapi.com', params=payload, timeout=60)
         
         if response.status_code != 200:
             print(f"[HATA] ScraperAPI Istek Başarısız! HTTP: {response.status_code}")
@@ -46,12 +41,12 @@ def main():
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Kleinanzeigen ilan kapsayıcıları
+        # 1. Ana kapsayıcılar (article.aditem)
         articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
         
+        # 2. Alternatif kapsayıcılar (li veya a etiketleri)
         if not articles:
-            # Alternatif liste kapsayıcısı
-            articles = soup.find_all('li', class_=lambda x: x and 'ad-listitem' in x)
+            articles = soup.select('ul#srchrslt-adresults li') or soup.find_all('a', href=lambda h: h and '/s-anzeige/' in h)
 
         print(f"[INFO] Incelenecek toplam ilan sayısı: {len(articles)}")
 
@@ -59,27 +54,34 @@ def main():
             print("[UYARI] Sayfada ilan kapsayıcısı bulunamadı.")
             return
 
-        for article in articles:
-            ad_id = article.get('data-adid')
-            
-            # ID yoksa linkten çek
-            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2') or article.find('a')
-            if not title_elem:
-                continue
+        for item in articles:
+            # Doğrudan 'a' linki yakalandıysa
+            if item.name == 'a':
+                href = item.get('href') or ''
+                ad_id = href.split('/')[-1] if href else None
+                title = item.text.strip() or "Arızalı Ekran Kartı İlanı"
+                price = "Detay için tıklayın"
+                raw_date = "Bugün / Yeni"
+            else:
+                ad_id = item.get('data-adid')
+                title_elem = item.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or item.find('h2') or item.find('a')
+                if not title_elem:
+                    continue
 
-            href = title_elem.get('href') or ''
-            if not ad_id and href:
-                ad_id = href.split('/')[-1]
+                href = title_elem.get('href') or ''
+                if not ad_id and href:
+                    ad_id = href.split('/')[-1]
+
+                price_elem = item.find('p', class_=lambda x: x and 'price' in x)
+                date_elem = item.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
+
+                title = title_elem.text.strip() or "Arızalı Ekran Kartı İlanı"
+                price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
+                raw_date = " ".join(date_elem.text.split()) if date_elem else "Bugün / Yeni"
 
             if not ad_id or ad_id in posted_ads:
                 continue
 
-            price_elem = article.find('p', class_=lambda x: x and 'price' in x)
-            date_elem = article.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
-
-            title = title_elem.text.strip() or "Arızalı Ekran Kartı İlanı"
-            price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
-            raw_date = " ".join(date_elem.text.split()) if date_elem else "Bugün / Yeni"
             link = "https://www.kleinanzeigen.de" + href if href.startswith('/') else href
 
             print(f"[YENİ İLAN] {title} | {price} | {raw_date}")
