@@ -21,6 +21,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Botu Calistir
-        env:
+        env: 
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
         run: python bot.py
