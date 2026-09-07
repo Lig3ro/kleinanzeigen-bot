@@ -13,16 +13,15 @@ def main():
 
     print("[INFO] ScraperAPI üzerinden Kleinanzeigen taranıyor...")
     
-    # render=true ekleyerek JS bileşenlerinin tam yüklenmesini sağlıyoruz
+    # ScraperAPI konfigürasyonu - render ve keep_headers
     payload = {
         'api_key': SCRAPER_API_KEY,
         'url': TARGET_URL,
-        'country_code': 'de',
-        'render': 'true'
+        'country_code': 'de'
     }
     
     try:
-        response = requests.get('http://api.scraperapi.com', params=payload, timeout=90)
+        response = requests.get('http://api.scraperapi.com', params=payload, timeout=60)
         
         if response.status_code != 200:
             print(f"[HATA] ScraperAPI Istek Başarısız! HTTP Kodu: {response.status_code}")
@@ -30,41 +29,34 @@ def main():
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Farklı ilan kapsayıcı etiketlerini tara
-        articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
-        if not articles:
-            articles = soup.select('ul#srchrslt-adresults li')
-        if not articles:
-            articles = soup.select('.ad-listitem')
+        # Sayfa başlığını yazdırarak engeli doğrula
+        page_title = soup.title.string.strip() if soup.title else "Başlık Yok"
+        print(f"[DEBUG] Sayfa Başlığı: {page_title}")
 
-        print(f"[INFO] Toplam {len(articles)} adet ilan tarandı.")
+        # Tüm 'a' etiketlerinden ilan linklerini filtrele
+        ad_links = soup.find_all('a', href=lambda h: h and '/s-anzeige/' in h)
+        print(f"[DEBUG] Bulunan ilan linki sayısı: {len(ad_links)}")
 
-        if len(articles) == 0:
-            print("[UYARI] İlan bulunamadı veya etiket yapısı değişti.")
+        if len(ad_links) == 0:
+            print("[UYARI] Sayfada hiç ilan linki bulunamadı.")
             return
 
-        for article in articles[:5]:
-            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
-            price_elem = article.find('p', class_=lambda x: x and 'price' in x)
-            
-            if title_elem and price_elem:
-                title = title_elem.text.strip()
-                price = price_elem.text.strip()
-                href = title_elem.get('href') or title_elem.find_parent('a')['href']
-                link = "https://www.kleinanzeigen.de" + href
+        # İlk geçerli ilanı al
+        first_ad = ad_links[0]
+        title = first_ad.text.strip() or "Arızalı Ekran Kartı İlanı"
+        href = first_ad.get('href')
+        link = "https://www.kleinanzeigen.de" + href if href.startswith('/') else href
 
-                print(f"[INFO] Son ilan bulundu: {title} - {price}")
+        print(f"[INFO] İlan bulundu: {title} -> {link}")
 
-                payload_discord = {
-                    "content": f"🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Link:** {link}"
-                }
-                res = requests.post(DISCORD_WEBHOOK_URL, json=payload_discord)
-                if res.status_code in [200, 204]:
-                    print("[BAŞARILI] Discord bildirimi gönderildi!")
-                else:
-                    print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
-                
-                break
+        payload_discord = {
+            "content": f"🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Link:** {link}"
+        }
+        res = requests.post(DISCORD_WEBHOOK_URL, json=payload_discord)
+        if res.status_code in [200, 204]:
+            print("[BAŞARILI] Discord bildirimi gönderildi!")
+        else:
+            print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
 
     except Exception as e:
         print(f"[HATA] Bir sorun oluştu: {str(e)}")
