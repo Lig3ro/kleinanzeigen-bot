@@ -28,11 +28,17 @@ def main():
     payload = {
         'api_key': SCRAPER_API_KEY,
         'url': TARGET_URL,
-        'country_code': 'de'
+        'country_code': 'de',
+        'keep_headers': 'true'
+    }
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
     }
     
     try:
-        response = requests.get('http://api.scraperapi.com', params=payload, timeout=60)
+        response = requests.get('http://api.scraperapi.com', params=payload, headers=headers, timeout=60)
         
         if response.status_code != 200:
             print(f"[HATA] ScraperAPI Istek Başarısız! HTTP: {response.status_code}")
@@ -40,12 +46,12 @@ def main():
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Öncelikli olarak 'article.aditem' kapsayıcılarını ara
+        # Kleinanzeigen ilan kapsayıcıları
         articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
         
-        # Eğer aditem bulunamazsa alternatif ilan kapsayıcılarını tara
         if not articles:
-            articles = soup.select('ul#srchrslt-adresults > li.ad-listitem')
+            # Alternatif liste kapsayıcısı
+            articles = soup.find_all('li', class_=lambda x: x and 'ad-listitem' in x)
 
         print(f"[INFO] Incelenecek toplam ilan sayısı: {len(articles)}")
 
@@ -54,9 +60,9 @@ def main():
             return
 
         for article in articles:
-            ad_id = article.get('data-adid') or article.find('article').get('data-adid') if article.find('article') else None
+            ad_id = article.get('data-adid')
             
-            # ID bulunamadıysa URL üzerinden benzersiz kimlik türet
+            # ID yoksa linkten çek
             title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2') or article.find('a')
             if not title_elem:
                 continue
