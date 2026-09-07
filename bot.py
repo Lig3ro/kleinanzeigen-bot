@@ -27,16 +27,16 @@ def main():
     is_first_run = len(posted_ads) == 0
     print(f"[INFO] Hafızadaki ilan sayısı: {len(posted_ads)}")
     
-    # JS render aktif edildi
+    # Ultra premium konfigürasyonu
     payload = {
         'api_key': SCRAPER_API_KEY,
         'url': TARGET_URL,
         'country_code': 'de',
-        'render': 'true'
+        'ultra_premium': 'true'
     }
     
     try:
-        response = requests.get('http://api.scraperapi.com', params=payload, timeout=90)
+        response = requests.get('http://api.scraperapi.com', params=payload, timeout=60)
         
         if response.status_code != 200:
             print(f"[HATA] ScraperAPI Istek Başarısız! HTTP: {response.status_code}")
@@ -44,55 +44,57 @@ def main():
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # 1. Standart ilan kartları
-        articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
-        
-        # 2. Alternatif liste kapsayıcıları
-        if not articles:
-            articles = soup.select('ul#srchrslt-adresults > li')
+        # Tüm ilan kartlarını veya ilan linklerini tara
+        raw_items = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
+        if not raw_items:
+            raw_items = soup.find_all('a', href=lambda h: h and '/s-anzeige/' in h)
 
-        if not articles:
-            print("[UYARI] Sayfada ilan kartı bulunamadı.")
+        if not raw_items:
+            print("[UYARI] Sayfada ilan verisi bulunamadı.")
             return
 
-        print(f"[INFO] Incelenecek toplam ilan sayısı: {len(articles)}")
+        print(f"[INFO] İşlenecek toplam öge sayısı: {len(raw_items)}")
 
         new_ads_found = 0
+        seen_in_this_run = set()
 
-        for article in articles:
-            # İlan ID'si çekme
-            ad_id = article.get('data-adid')
-            
-            title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2') or article.find('a')
-            if not title_elem:
-                continue
+        for item in raw_items:
+            if item.name == 'a':
+                href = item.get('href', '')
+                title = item.text.strip() or "Arızalı Ekran Kartı İlanı"
+                price = "Detay için tıklayın"
+                raw_date = "Bugün / Yeni"
+            else:
+                title_elem = item.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or item.find('h2') or item.find('a')
+                if not title_elem:
+                    continue
+                href = title_elem.get('href', '')
+                price_elem = item.find('p', class_=lambda x: x and 'price' in x)
+                date_elem = item.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
 
-            href = title_elem.get('href') or ''
+                title = title_elem.text.strip() or "Arızalı Ekran Kartı İlanı"
+                price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
+                raw_date = " ".join(date_elem.text.split()) if date_elem else "Bugün / Yeni"
+
             if not href or '/s-anzeige/' not in href:
                 continue
 
-            if not ad_id:
-                ad_id = href.split('/')[-1]
+            ad_id = href.split('/')[-1]
 
-            # Zaten hafızadaysa atla
-            if ad_id in posted_ads:
+            # Tekrar eden ögeleri tek çalıştırma içinde süz
+            if ad_id in seen_in_this_run or ad_id in posted_ads:
                 continue
+            seen_in_this_run.add(ad_id)
 
-            price_elem = article.find('p', class_=lambda x: x and 'price' in x)
-            date_elem = article.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
-
-            title = title_elem.text.strip() or "Arızalı Ekran Kartı İlanı"
-            price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
-            raw_date = " ".join(date_elem.text.split()) if date_elem else "Bugün / Yeni"
             link = "https://www.kleinanzeigen.de" + href if href.startswith('/') else href
 
-            # İlk çalıştırmada mevcut eski ilanları hafızaya alıp Discord'u spamlamıyoruz
+            # İlk çalıştırmada mevcut eski ilanları hafızaya kaydet, Discord'u spamla
             if is_first_run:
                 save_posted_ad(ad_id)
                 posted_ads.add(ad_id)
                 continue
 
-            print(f"[YENİ İLAN DETAYI] {title} | {price} | {raw_date}")
+            print(f"[YENİ İLAN] {title} | {price} | {raw_date}")
 
             payload_discord = {
                 "content": f"🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Sitedeki Yüklenme Saati:** 🕒 `{raw_date}`\n**Link:** {link}"
@@ -100,7 +102,7 @@ def main():
             
             res = requests.post(DISCORD_WEBHOOK_URL, json=payload_discord)
             if res.status_code in [200, 204]:
-                print(f"[BAŞARILI] Discord'a gönderildi: {title}")
+                print(f"[BAŞARILI] Discord'a atıldı: {ad_id}")
                 save_posted_ad(ad_id)
                 posted_ads.add(ad_id)
                 new_ads_found += 1
@@ -109,7 +111,7 @@ def main():
                 print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
 
         if is_first_run:
-            print("[INFO] İlk çalıştırma tamamlandı. Sayfadaki mevcut ilanlar hafızaya kaydedildi. Artık sadece SIFIR YENİ ilanlar Discord'a atılacak!")
+            print("[INFO] İlk çalıştırma tamamlandı! Sitedeki mevcut ilanlar hafızaya yazıldı. Artık sadece SIFIR YENİ ilanlar atılacak.")
         elif new_ads_found == 0:
             print("[INFO] Yeni ilan yok.")
 
