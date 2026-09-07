@@ -35,11 +35,6 @@ def check_listings():
             }
             requests.post(DISCORD_WEBHOOK_URL, json=payload)
             break # Sadece en son ilanı kontrol edip bildirmesi yeterli
-
-if __name__ == "__main__":
-    while True:
-        try:
-            main()  # İlan tarama fonksiyonun
-        except Exception as e:
-            print(f"Hata oluştu: {e}")
-        time.sleep(600)  # 10 dakika bekle ve tekrar çalış
+       
+    if __name__ == "__main__":
+        main()
