@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from bs4 import BeautifulSoup
 import cloudscraper
@@ -26,6 +27,9 @@ def main():
         'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
     }
     
+    # Korumaya takılmamak için kısa bir es
+    time.sleep(2)
+    
     response = scraper.get(SEARCH_URL, headers=headers)
     if response.status_code != 200:
         print(f"[HATA] Bağlantı başarısız! HTTP Kodu: {response.status_code}")
@@ -33,12 +37,18 @@ def main():
 
     soup = BeautifulSoup(response.text, 'html.parser')
     
-    # Hem eski aditem hem de yeni ad-list yapısını tarar
+    # Farklı ilan kapsayıcı etiketlerini dene
     articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
     if not articles:
         articles = soup.select('ul#srchrslt-adresults > li article')
+    if not articles:
+        articles = soup.select('.ad-listitem')
 
     print(f"[INFO] Toplam {len(articles)} adet ilan tarandı.")
+
+    if len(articles) == 0:
+        print("[UYARI] Sayfa çekildi ancak ilan etiketi bulunamadı (Anti-bot engelinde olabilir).")
+        return
 
     for article in articles[:5]:
         title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
