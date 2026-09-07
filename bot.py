@@ -13,9 +13,17 @@ def main():
 
     print("[INFO] Kleinanzeigen taranıyor...")
     
-    scraper = cloudscraper.create_scraper()
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
+    
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
     }
     
     response = scraper.get(SEARCH_URL, headers=headers)
@@ -24,21 +32,26 @@ def main():
         return
 
     soup = BeautifulSoup(response.text, 'html.parser')
-    articles = soup.find_all('article', class_='aditem')
+    
+    # Hem eski aditem hem de yeni ad-list yapısını tarar
+    articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
+    if not articles:
+        articles = soup.select('ul#srchrslt-adresults > li article')
+
     print(f"[INFO] Toplam {len(articles)} adet ilan tarandı.")
 
-    for article in articles[:5]:  # En son yüklenen ilk 5 ilana bak
-        title_elem = article.find('a', class_='ellipsis')
-        price_elem = article.find('p', class_='aditem-main--middle--price-shipping--price')
+    for article in articles[:5]:
+        title_elem = article.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or article.find('h2')
+        price_elem = article.find('p', class_=lambda x: x and 'price' in x)
         
         if title_elem and price_elem:
             title = title_elem.text.strip()
             price = price_elem.text.strip()
-            link = "https://www.kleinanzeigen.de" + title_elem['href']
+            href = title_elem.get('href') or title_elem.find_parent('a')['href']
+            link = "https://www.kleinanzeigen.de" + href
 
             print(f"[INFO] Son ilan bulundu: {title} - {price}")
 
-            # Discord'a Bildirim Gönder
             payload = {
                 "content": f"🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Link:** {link}"
             }
@@ -48,7 +61,7 @@ def main():
             else:
                 print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
             
-            break # Sadece en son ilanı atar
+            break
 
 if __name__ == "__main__":
     main()
