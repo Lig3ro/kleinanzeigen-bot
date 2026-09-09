@@ -100,7 +100,7 @@ def main():
             print(f"[YENİ İLAN] {title} | {price} | {raw_date}")
 
             payload_discord = {
-                "content": f"🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Sitedeki Yüklenme Saati:** 🕒 `{raw_date}`\n**Link:** {link}"
+                "content": f"<@734134493039951964>🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Sitedeki Yüklenme Saati:** 🕒 `{raw_date}`\n**Link:** {link}"
             }
             res = requests.post(DISCORD_WEBHOOK_URL, json=payload_discord)
             if res.status_code in [200, 204]:
