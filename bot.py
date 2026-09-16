@@ -60,14 +60,17 @@ def main():
         new_ads_count = 0
 
         for item in articles:
+            # 1. Veri Ayıklama
             if item.name == 'a':
                 href = item.get('href') or ''
-                title = item.text.strip() or "Arızalı Ekran Kartı İlanı"
-                price = "Detay için linke tıklayın"
+                title_elem = item.find('h2') or item
+                title = title_elem.text.strip() if title_elem else "Arızalı Ekran Kartı İlanı"
+                price = "Fiyat İçin Linke Tıklayın"
                 raw_date = "Bugün / Yeni"
             else:
-                title_elem = item.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or item.find('h2')
-                price_elem = item.find('p', class_=lambda x: x and 'price' in x)
+                # Başlık elementini doğrudan h2 veya başlık linkinden alma
+                title_elem = item.find('h2') or item.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x))
+                price_elem = item.find('p', class_=lambda x: x and 'price' in x) or item.find('b')
                 date_elem = item.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
 
                 if not title_elem:
@@ -76,7 +79,16 @@ def main():
                 title = title_elem.text.strip()
                 price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
                 raw_date = " ".join(date_elem.text.split()) if date_elem else "Saat Bilgisi Yok"
-                href = title_elem.get('href') or title_elem.find_parent('a')['href']
+                
+                # Linki garanti altına alma
+                link_elem = item.find('a', href=lambda h: h and '/s-anzeige/' in h)
+                href = link_elem.get('href') if link_elem else (title_elem.get('href') if title_elem.name == 'a' else '')
+
+            # Başlık eğer sadece görsel sayısı gibi sayılardan oluşuyorsa h2 yedeklemesini kullan
+            if title.isdigit():
+                h2_backup = item.find('h2')
+                if h2_backup:
+                    title = h2_backup.text.strip()
 
             if not href or '/s-anzeige/' not in href:
                 continue
