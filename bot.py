@@ -28,7 +28,6 @@ def main():
     print(f"[INFO] Hafızadaki ilan sayısı: {len(posted_ads)}")
     print("[INFO] Cloudscraper ile Kleinanzeigen doğrudan taranıyor...")
 
-    # Cloudflare engelini aşan tarayıcı simülasyonu
     scraper = cloudscraper.create_scraper(
         browser={
             'browser': 'chrome',
@@ -46,7 +45,6 @@ def main():
 
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        # Kleinanzeigen kapsayıcı tespiti
         articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
         if not articles:
             articles = soup.find_all('a', href=lambda h: h and '/s-anzeige/' in h)
@@ -60,17 +58,25 @@ def main():
         new_ads_count = 0
 
         for item in articles:
-            # 1. Veri Ayıklama
             if item.name == 'a':
                 href = item.get('href') or ''
-                title_elem = item.find('h2') or item
-                title = title_elem.text.strip() if title_elem else "Arızalı Ekran Kartı İlanı"
+                title = item.text.strip() or "Arızalı Ekran Kartı İlanı"
                 price = "Fiyat İçin Linke Tıklayın"
                 raw_date = "Bugün / Yeni"
             else:
-                # Başlık elementini doğrudan h2 veya başlık linkinden alma
-                title_elem = item.find('h2') or item.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x))
-                price_elem = item.find('p', class_=lambda x: x and 'price' in x) or item.find('b')
+                # Başlık tespiti için kesin sınıflar ve etiketler
+                title_elem = (
+                    item.find('h2', class_=lambda x: x and 'title' in x) or
+                    item.find('a', class_=lambda x: x and ('ellipsis' in x or 'title' in x)) or
+                    item.find('h2')
+                )
+                
+                price_elem = (
+                    item.find('p', class_=lambda x: x and 'price' in x) or
+                    item.find('span', class_=lambda x: x and 'price' in x) or
+                    item.find('b')
+                )
+                
                 date_elem = item.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
 
                 if not title_elem:
@@ -79,16 +85,22 @@ def main():
                 title = title_elem.text.strip()
                 price = price_elem.text.strip() if price_elem else "Fiyat Belirtilmedi"
                 raw_date = " ".join(date_elem.text.split()) if date_elem else "Saat Bilgisi Yok"
-                
-                # Linki garanti altına alma
+
                 link_elem = item.find('a', href=lambda h: h and '/s-anzeige/' in h)
                 href = link_elem.get('href') if link_elem else (title_elem.get('href') if title_elem.name == 'a' else '')
 
-            # Başlık eğer sadece görsel sayısı gibi sayılardan oluşuyorsa h2 yedeklemesini kullan
-            if title.isdigit():
-                h2_backup = item.find('h2')
-                if h2_backup:
-                    title = h2_backup.text.strip()
+            # Başlıkta sadece sayı yakalama hatasını düzeltme (görsel sayısı/sayfa no temizliği)
+            if title.replace(" ", "").isdigit():
+                h2_find = item.find('h2')
+                if h2_find and not h2_find.text.strip().isdigit():
+                    title = h2_find.text.strip()
+                else:
+                    a_find = item.find_all('a', href=lambda h: h and '/s-anzeige/' in h)
+                    for a_tag in a_find:
+                        txt = a_tag.text.strip()
+                        if txt and not txt.isdigit():
+                            title = txt
+                            break
 
             if not href or '/s-anzeige/' not in href:
                 continue
