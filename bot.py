@@ -28,14 +28,23 @@ def main():
     print(f"[INFO] Hafızadaki ilan sayısı: {len(posted_ads)}")
     print("[INFO] ScraperAPI üzerinden Kleinanzeigen taranıyor...")
     
+    # 403 Hatasını Çözen ScraperAPI Parametreleri
     payload = {
         'api_key': SCRAPER_API_KEY,
         'url': TARGET_URL,
-        'country_code': 'de'
+        'country_code': 'de',
+        'render': 'true',         # JS rendering aktifleştirildi
+        'keep_headers': 'true'    # User-Agent başlığını aktarma
+    }
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
     }
     
     try:
-        response = requests.get('http://api.scraperapi.com', params=payload, timeout=60)
+        # İstek ScraperAPI'ye iletiliyor
+        response = requests.get('http://api.scraperapi.com', params=payload, headers=headers, timeout=90)
         
         if response.status_code != 200:
             print(f"[HATA] ScraperAPI Istek Başarısız! HTTP Kodu: {response.status_code}")
@@ -43,7 +52,7 @@ def main():
 
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Senin çalışan yapıdaki kapsayıcılar
+        # Kleinanzeigen kapsayıcı tespiti
         articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
         if not articles:
             articles = soup.find_all('a', href=lambda h: h and '/s-anzeige/' in h)
@@ -84,13 +93,13 @@ def main():
             if not ad_id:
                 ad_id = href.split('/')[-1]
 
-            # 2. Hafıza Filtresi (Daha önce atıldıysa atla)
+            # 2. Hafıza Filtresi
             if ad_id in posted_ads:
                 continue
 
             link = "https://www.kleinanzeigen.de" + href if href.startswith('/') else href
 
-            # 3. İlk Çalıştırma Koruması (Eski ilanları atma, sadece hafızaya kaydet)
+            # 3. İlk Çalıştırma Koruması
             if is_first_run:
                 save_posted_ad(ad_id)
                 posted_ads.add(ad_id)
@@ -100,7 +109,7 @@ def main():
             print(f"[YENİ İLAN] {title} | {price} | {raw_date}")
 
             payload_discord = {
-                "content": f"<@734134493039951964>🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Sitedeki Yüklenme Saati:** 🕒 `{raw_date}`\n**Link:** {link}"
+                "content": f"<@734134493039951964> 🚨 **Yeni Arızalı Ekran Kartı İlanı!**\n**Başlık:** {title}\n**Fiyat:** {price}\n**Sitedeki Yüklenme Saati:** 🕒 `{raw_date}`\n**Link:** {link}"
             }
             res = requests.post(DISCORD_WEBHOOK_URL, json=payload_discord)
             if res.status_code in [200, 204]:
@@ -108,7 +117,7 @@ def main():
                 save_posted_ad(ad_id)
                 posted_ads.add(ad_id)
                 new_ads_count += 1
-                time.sleep(1.5)  # Discord spam engeli (429) koruması
+                time.sleep(1.5)  # Discord rate limit koruması
             else:
                 print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
 
