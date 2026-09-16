@@ -1,10 +1,10 @@
 import os
 import time
 import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK")
-SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 TARGET_URL = "https://www.kleinanzeigen.de/s-grafikkarte-defekt/k0"
 HISTORY_FILE = "posted_ads.txt"
 
@@ -19,39 +19,33 @@ def save_posted_ad(ad_id):
         f.write(f"{ad_id}\n")
 
 def main():
-    if not DISCORD_WEBHOOK_URL or not SCRAPER_API_KEY:
-        print("[HATA] Secret'lar eksik!")
+    if not DISCORD_WEBHOOK_URL:
+        print("[HATA] Discord Webhook Secret'ı eksik!")
         return
 
     posted_ads = load_posted_ads()
     is_first_run = len(posted_ads) == 0
     print(f"[INFO] Hafızadaki ilan sayısı: {len(posted_ads)}")
-    print("[INFO] ScraperAPI üzerinden Kleinanzeigen taranıyor...")
-    
-    # 403 Hatasını Çözen ScraperAPI Parametreleri
-    payload = {
-        'api_key': SCRAPER_API_KEY,
-        'url': TARGET_URL,
-        'country_code': 'de',
-        'render': 'true',         # JS rendering aktifleştirildi
-        'keep_headers': 'true'    # User-Agent başlığını aktarma
-    }
+    print("[INFO] Cloudscraper ile Kleinanzeigen doğrudan taranıyor...")
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
-    }
-    
+    # Cloudflare engelini aşan tarayıcı simülasyonu
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
+
     try:
-        # İstek ScraperAPI'ye iletiliyor
-        response = requests.get('http://api.scraperapi.com', params=payload, headers=headers, timeout=90)
-        
+        response = scraper.get(TARGET_URL, timeout=30)
+
         if response.status_code != 200:
-            print(f"[HATA] ScraperAPI Istek Başarısız! HTTP Kodu: {response.status_code}")
+            print(f"[HATA] Bağlantı Başarısız! HTTP Kodu: {response.status_code}")
             return
 
         soup = BeautifulSoup(response.text, 'html.parser')
-        
+
         # Kleinanzeigen kapsayıcı tespiti
         articles = soup.find_all('article', class_=lambda x: x and 'aditem' in x)
         if not articles:
@@ -66,7 +60,6 @@ def main():
         new_ads_count = 0
 
         for item in articles:
-            # 1. Veri Ayıklama
             if item.name == 'a':
                 href = item.get('href') or ''
                 title = item.text.strip() or "Arızalı Ekran Kartı İlanı"
@@ -76,7 +69,7 @@ def main():
                 title_elem = item.find('a', class_=lambda x: x and ('ellipsis' in x or 'badge' in x)) or item.find('h2')
                 price_elem = item.find('p', class_=lambda x: x and 'price' in x)
                 date_elem = item.find('div', class_=lambda x: x and 'aditem-main--top--right' in x)
-                
+
                 if not title_elem:
                     continue
 
@@ -88,24 +81,20 @@ def main():
             if not href or '/s-anzeige/' not in href:
                 continue
 
-            # Benzersiz ilan ID'si al
             ad_id = item.get('data-adid') if item.name != 'a' else None
             if not ad_id:
                 ad_id = href.split('/')[-1]
 
-            # 2. Hafıza Filtresi
             if ad_id in posted_ads:
                 continue
 
             link = "https://www.kleinanzeigen.de" + href if href.startswith('/') else href
 
-            # 3. İlk Çalıştırma Koruması
             if is_first_run:
                 save_posted_ad(ad_id)
                 posted_ads.add(ad_id)
                 continue
 
-            # 4. Gerçek Yeni İlanı Discord'a Gönder
             print(f"[YENİ İLAN] {title} | {price} | {raw_date}")
 
             payload_discord = {
@@ -117,12 +106,12 @@ def main():
                 save_posted_ad(ad_id)
                 posted_ads.add(ad_id)
                 new_ads_count += 1
-                time.sleep(1.5)  # Discord rate limit koruması
+                time.sleep(1.5)
             else:
                 print(f"[HATA] Discord bildirimi atılamadı. HTTP: {res.status_code}")
 
         if is_first_run:
-            print("[INFO] İlk tarama yapıldı! Mevcut eski ilanlar hafızaya kaydedildi. Bundan sonraki turlarda sadece SIFIR YENİ ilanlar atılacak.")
+            print("[INFO] İlk tarama yapıldı! Mevcut eski ilanlar hafızaya kaydedildi.")
         elif new_ads_count == 0:
             print("[INFO] Yeni ilan bulunamadı.")
 
